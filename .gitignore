@@ -1,0 +1,16 @@
+# Local backups created by ayneh while testing
+.ayneh-backup/
+.mirrors-backup/
+*.bak
+*.bak.meta
+
+# Editor / OS cruft
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Build scratch
+dist/*.tmp

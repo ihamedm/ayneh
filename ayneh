@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Development entry point: sources the modular library and runs the CLI.
+# For the single-file build used by the curl one-liner, run ./build.sh.
+set -uo pipefail
+
+_ayneh_self="${BASH_SOURCE[0]}"
+_ayneh_root="$(cd -- "$(dirname -- "$_ayneh_self")" && pwd)"
+
+shopt -s nullglob
+for _ayneh_lib in "$_ayneh_root"/lib/*.sh; do
+    # shellcheck source=/dev/null
+    . "$_ayneh_lib"
+done
+shopt -u nullglob
+
+unset _ayneh_self _ayneh_lib
+
+main "$@"
