@@ -33,6 +33,10 @@ ${C_BOLD}Install as a command:${C_OFF}
 
 ${C_BOLD}Environment:${C_OFF}
   NO_COLOR=1              Disable colors
+  AYNEH_NO_CLEAR=1        Do not clear the screen between menu actions
+  AYNEH_NO_RESTART=1      Do not offer to restart Docker after applying a mirror
+  AYNEH_DOCKER_CONFIG     Override the daemon.json path (snap/rootless setups)
+  AYNEH_SKIP_VALIDATE=1   Skip 'dockerd --validate' (use only if it false-fails)
   AYNEH_CONNECT_TIMEOUT   curl connect timeout in seconds (default ${AYNEH_CONNECT_TIMEOUT})
   AYNEH_MAX_TIME          curl total timeout in seconds (default ${AYNEH_MAX_TIME})
 EOF

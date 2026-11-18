@@ -90,6 +90,13 @@ bash -n dist/ayneh.sh
 make test
 ```
 
+For changes touching the Docker applier, run the opt-in nested-Docker test
+(needs a privileged Docker daemon and network):
+
+```bash
+make integration-docker
+```
+
 For npm/PyPI/apt you can also verify the concrete probe path returns 200:
 
 ```bash

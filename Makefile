@@ -2,7 +2,7 @@ SHELL := /bin/bash
 PREFIX ?= /usr/local
 DESTDIR ?=
 
-.PHONY: all build check test lint install uninstall clean
+.PHONY: all build check test lint integration-docker install uninstall clean
 
 all: build
 
@@ -17,6 +17,10 @@ check:
 ## Offline smoke tests (no network required)
 test: check
 	bash tests/smoke.sh
+
+## Slow end-to-end Docker mirror test (needs privileged Docker)
+integration-docker:
+	bash tests/docker-dind.sh
 
 ## Static analysis; install shellcheck first
 lint:

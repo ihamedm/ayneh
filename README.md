@@ -5,7 +5,7 @@
 **اسکنر و تنظیم‌کنندهٔ میرورهای ایرانی مخازن نرم‌افزاری**
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-2.0.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-2.1.0-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="bash" src="https://img.shields.io/badge/bash-%3E%3D%204-4EAA25?logo=gnubash&logoColor=white">
   <a href="https://github.com/ihamedm/ayneh/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ihamedm/ayneh/actions/workflows/ci.yml/badge.svg"></a>
@@ -65,7 +65,7 @@ ayneh --help       # راهنما
    - apt: فایل `Release` مربوط به همان suite واقعی
    - dnf/yum: فایل `repodata/repomd.xml` مطابق نسخه و معماری
    - pacman و apk: مسیر `APKINDEX` / مخزن `core`
-4. **پشتیبان‌گیری و اعمال** — قبل از هر تغییر یک نسخهٔ پشتیبان زمان‌دار می‌سازد، فایل را بازنویسی می‌کند و دستور به‌روزرسانی ایندکس را نشان می‌دهد.
+4. **پشتیبان‌گیری و اعمال** — قبل از هر تغییر یک نسخهٔ پشتیبان زمان‌دار می‌سازد، فایل را بازنویسی می‌کند و دستور به‌روزرسانی ایندکس را نشان می‌دهد. برای Docker، `daemon.json` را اعتبارسنجی می‌کند، داemon را ری‌استارت می‌کند و وجود میرور را در `docker info` بررسی می‌کند.
 5. **بازگردانی** — با `ayneh --restore` می‌توانید هر تغییر را برگردانید.
 
 ---
@@ -115,6 +115,9 @@ ayneh
   7) Restore from backup
   0) Exit
 ```
+
+> صفحه بعد از انتخاب هر گزینه به‌صورت خودکار پاک می‌شود تا خروجی دستور بعدی از بالای ترمینال شروع شود. اگر این رفتار را نمی‌خواهید:
+> `AYNEH_NO_CLEAR=1 ayneh`
 
 در گزینهٔ ۳، میرورهای همان سرویس **به‌صورت موازی** تست می‌شوند و جدولی مثل زیر می‌بینید:
 
@@ -199,6 +202,10 @@ sudo ayneh --restore /var/backups/ayneh/sources.list.apt.20260101-120000.bak
 | `AYNEH_MAX_TIME` | `12` | مهلت کل درخواست curl (ثانیه) |
 | `AYNEH_REPO` | `ihamedm/ayneh` | مخزن مورد استفاده در پیام‌های راهنما |
 | `AYNEH_BRANCH` | `main` | شاخهٔ مورد استفاده در پیام‌های راهنما |
+| `AYNEH_NO_CLEAR` | تنظیم‌نشده | با مقدار `1` پاک‌کردن صفحه بین گزینه‌های منو غیرفعال می‌شود |
+| `AYNEH_NO_RESTART` | تنظیم‌نشده | با مقدار `1` پیشنهاد ری‌استارت خودکار داکر غیرفعال می‌شود |
+| `AYNEH_DOCKER_CONFIG` | تشخیص خودکار | مسیر دلخواه `daemon.json` (مثلاً نصب snap) |
+| `AYNEH_SKIP_VALIDATE` | تنظیم‌نشده | با مقدار `1` بررسی `dockerd --validate` رد می‌شود |
 | `AYNEH_REF` | `main` | شاخه/تگ برای `install.sh` |
 | `AYNEH_BASE_URL` | آدرس GitHub | آدرس پایهٔ دانلود در `install.sh` (برای میرور/تست) |
 | `PREFIX` | `/usr/local` | مسیر نصب در `install.sh` |
@@ -248,6 +255,7 @@ cd ayneh
 bash -n dist/ayneh.sh      # بررسی سینتکس
 make test                  # تست‌های آفلاین
 make lint                  # shellcheck (در صورت نصب)
+make integration-docker    # تست واقعی میرور داکر با Docker-in-Docker (کند، نیازمند Docker)
 ./ayneh --help
 ```
 
@@ -308,11 +316,22 @@ curl -fsSL .../dist/ayneh.sh | sudo bash -s -- --apply debian ArvanCloud
 ممکن است codename سیستم شما روی آن میرور موجود نباشد. با `ayneh --restore` برگردانید و میرور دیگری امتحان کنید.
 
 **داکر هنوز از میرور استفاده نمی‌کند**
-بعد از اعمال، سرویس داکر را ری‌استارت کنید:
+ابزار پس از نوشتن `daemon.json` از شما می‌پرسد که داکر را ری‌استارت کند و سپس بررسی می‌کند میرور در `docker info` دیده می‌شود یا نه. اگر ری‌استارت را رد کردید یا خودتان فایل را دستی تغییر دادید:
 
 ```bash
 sudo systemctl restart docker
+docker info --format '{{json .RegistryConfig.Mirrors}}'
+docker pull hello-world            # تست واقعی
 ```
+
+نکته‌ها:
+
+- `registry-mirrors` فقط کش/میرور **Docker Hub** (`docker.io`) است؛ ایمیج‌های `ghcr.io`، `quay.io` یا رجیستری خصوصی شما از آن عبور نمی‌کنند.
+- اگر Docker را با snap نصب کرده‌اید، فایل درست `/var/snap/docker/current/config/daemon.json` است و ابزار خودش آن را تشخیص می‌دهد؛ در غیر این صورت با `AYNEH_DOCKER_CONFIG=/path/to/daemon.json` مشخص کنید.
+- اگر `daemon.json` نامعتبر باشد، Docker اصلاً بالا نمی‌آید. ابزار قبل از نصب فایل را با `dockerd --validate` بررسی می‌کند. اگر این بررسی در محیط شما به‌دلیل خطای نامرتبط محیطی شکست خورد، با `AYNEH_SKIP_VALIDATE=1` دور زده می‌شود.
+- اگر در لاگ داکر خطای `x509: certificate signed by unknown authority` دیدید، بستهٔ گواهی‌ها را به‌روز کنید: `sudo apt update && sudo apt install --reinstall ca-certificates` و سپس داکر را ری‌استارت کنید.
+- برای دیدن خطاهای میرور: `sudo journalctl -u docker -n 100 --no-pager | grep -iE 'mirror|registry|x509'`.
+- Docker Desktop روی مک/ویندوز از این مسیر استفاده نمی‌کند؛ این گزینه برای داکر روی لینوکس است.
 
 **پورت/فایروال**
 ابزار به HTTP/HTTPS خروجی (۴۴۳/۸۰) نیاز دارد. در شبکه‌های محدود، ممکن است برخی میرورها اصلاً قابل دسترس نباشند.

@@ -57,6 +57,7 @@ assert_rc "--help exits 0" 0 "$RC"
 assert_contains "--help shows usage" "$OUT" "Usage:"
 assert_contains "--help shows services" "$OUT" "pacman"
 assert_contains "--help shows curl URL" "$OUT" "dist/ayneh.sh"
+assert_contains "--help documents screen clearing" "$OUT" "AYNEH_NO_CLEAR"
 
 run_cli bash "$DIST" --list npm
 assert_rc "--list npm exits 0" 0 "$RC"
@@ -85,6 +86,17 @@ assert_rc "unknown option fails" 1 "$RC"
 run_cli bash "$DIST" --apply npm NoSuchMirror
 assert_rc "--apply unknown mirror fails" 1 "$RC"
 assert_contains "--apply lists known names" "$OUT" "Liara"
+
+if command -v curl >/dev/null 2>&1; then
+    set +e
+    OUT="$(printf '0\n' | bash "$DIST" 2>&1)"
+    RC=$?
+    set -e
+    assert_rc "interactive menu exits on 0" 0 "$RC"
+    assert_not_contains "no clear escapes without a tty" "$OUT" "$(printf '\033[H')"
+else
+    printf '  \033[33mskip\033[0m interactive menu test (curl not installed)\n'
+fi
 
 printf '\n== library ==\n'
 export AYNEH_LIB_ONLY=1
@@ -135,6 +147,13 @@ while IFS='|' read -r _ url; do
     [[ "$url" == https://* ]] || bad_urls=$((bad_urls+1))
 done < <(get_mirrors docker)
 assert_eq "Docker mirror URLs are https hosts" 0 "$bad_urls"
+
+out="$(clear_screen)"
+assert_eq "clear_screen is silent when stdout is not a tty" "" "$out"
+# shellcheck disable=SC2034  # consumed by docker_config_file
+AYNEH_DOCKER_CONFIG="$ROOT/tmp-daemon.json"
+assert_eq "docker config override is honoured" "$ROOT/tmp-daemon.json" "$(docker_config_file)"
+unset AYNEH_DOCKER_CONFIG
 
 parsed="$(_parse_apply_target npm Liara)"
 assert_eq "_parse_apply_target name" "Liara" "$(printf '%s\n' "$parsed" | sed -n '1p')"

@@ -66,6 +66,7 @@ menu_pick_mirror() {
         warn "That mirror was unreachable in the test. Apply anyway?"
         confirm "  proceed" n || return 1
     fi
+    clear_screen
     apply_mirror "$svc" "${names[$idx]}" "${urls[$idx]}"
 }
 
@@ -87,6 +88,7 @@ menu_services() {
 EOF
         local c
         ask c "> " || { echo; return 0; }
+        [[ "$c" =~ ^[1-9]$ ]] && clear_screen
         case "$c" in
             1) menu_pick_mirror npm ;;
             2) menu_pick_mirror pypi ;;
@@ -110,6 +112,7 @@ menu_test_mirror() {
     local u
     ask u "URL> " || { echo; return 0; }
     [[ -z "$u" ]] && return 0
+    clear_screen
     local code; code="$(http_code "$u")"
     local status color
     if [[ "$code" == "200" ]]; then status="OK"; color="$C_GREEN"
@@ -136,6 +139,7 @@ menu_restore() {
     [[ -z "$p" ]] && return 0
     warn "This will overwrite the original location recorded for that backup."
     confirm "  restore" n || return 1
+    clear_screen
     restore_backup "$p"
 }
 
@@ -172,6 +176,7 @@ menu_main() {
 EOF
         local c
         ask c "${C_BOLD}ayneh>${C_OFF} " || { echo "Bye."; return 0; }
+        [[ "$c" =~ ^[1-7]$ ]] && clear_screen
         case "$c" in
             1) scan_all; pause ;;
             2)
@@ -180,6 +185,7 @@ EOF
   1) npm   2) PyPI   3) Docker   4) apt   5) yum/dnf   6) pacman   7) apk   0) back
 EOF
                 local s; ask s "> "
+                [[ "$s" =~ ^[1-7]$ ]] && clear_screen
                 case "$s" in
                     1) scan_service npm ;;
                     2) scan_service pypi ;;

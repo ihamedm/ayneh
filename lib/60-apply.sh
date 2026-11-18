@@ -72,6 +72,49 @@ apply_pypi() {
     [[ -n "$conf_file" ]] && info "Config file: $conf_file"
 }
 
+# Path to the daemon config actually used on this host. Snap installs keep
+# their configuration outside /etc; AYNEH_DOCKER_CONFIG overrides both.
+docker_config_file() {
+    if [[ -n "${AYNEH_DOCKER_CONFIG:-}" ]]; then
+        printf '%s\n' "$AYNEH_DOCKER_CONFIG"
+    elif [[ -d /var/snap/docker/current/config ]]; then
+        printf '%s\n' "/var/snap/docker/current/config/daemon.json"
+    else
+        printf '%s\n' "/etc/docker/daemon.json"
+    fi
+}
+
+# Restart the Docker service with whichever init system is available.
+restart_docker_service() {
+    if have systemctl && [[ -d /run/systemd/system ]]; then
+        maybe_sudo systemctl restart docker
+    elif have service; then
+        maybe_sudo service docker restart
+    elif have rc-service; then
+        maybe_sudo rc-service docker restart
+    else
+        return 1
+    fi
+}
+
+# Wait until the daemon answers again after a restart.
+_wait_for_docker() {
+    local i
+    for ((i = 0; i < 20; i++)); do
+        docker info >/dev/null 2>&1 && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# True when the running daemon reports the given mirror.
+_docker_mirror_active() {
+    local want="${1%/}"
+    have docker || return 1
+    docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' 2>/dev/null \
+        | awk -v want="$want" '{ sub(/\/$/, ""); if ($0 == want) found=1 } END { exit !found }'
+}
+
 apply_docker() {
     local name="$1" url="$2"
     hdr "Applying Docker registry mirror: $name"
@@ -83,11 +126,14 @@ apply_docker() {
     fi
     ok "Mirror reachable."
 
-    local dj=/etc/docker/daemon.json
-    local tmpjson="$AYNEH_TMPDIR/daemon.json"
-    maybe_sudo mkdir -p /etc/docker || return 1
-    [[ -f "$dj" ]] && backup_file "$dj" docker >/dev/null && info "Backed up $dj"
+    local dj tmpjson dir
+    dj="$(docker_config_file)"
+    tmpjson="$AYNEH_TMPDIR/daemon.json"
+    dir="$(dirname "$dj")"
+    maybe_sudo mkdir -p "$dir" || return 1
 
+    # Merge with the existing config (so data-root, log-driver, insecure
+    # registries, etc. are preserved), then validate before installing.
     if have python3; then
         if ! python3 - "$dj" "$url" "$tmpjson" <<'PY'
 import json, os, sys
@@ -98,20 +144,17 @@ if os.path.exists(path) and os.path.getsize(path) > 0:
     try:
         with open(path) as f:
             data = json.load(f)
-    except Exception as exc:  # keep going; the broken file has been backed up
+    except Exception as exc:  # keep going; the broken file will be backed up
         print("warning: existing daemon.json is not valid JSON: %s" % exc,
               file=sys.stderr)
         data = {}
 mirrors = data.get("registry-mirrors", [])
-if mirror in mirrors:
-    mirrors.remove(mirror)
-mirrors.insert(0, mirror)
-seen, deduped = set(), []
-for item in mirrors:
-    if isinstance(item, str) and item not in seen:
-        seen.add(item)
-        deduped.append(item)
-data["registry-mirrors"] = deduped
+if not isinstance(mirrors, list):
+    mirrors = []
+norm = mirror.rstrip("/")
+# Drop any previous spelling of the same mirror, then put it first.
+mirrors = [m for m in mirrors if isinstance(m, str) and m.rstrip("/") != norm]
+data["registry-mirrors"] = [mirror] + mirrors
 with open(out, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -120,19 +163,72 @@ PY
             err "Could not merge daemon.json (python3 failed). Nothing changed."
             return 1
         fi
-        maybe_sudo install -m 0644 "$tmpjson" "$dj" || return 1
     elif [[ ! -e "$dj" ]]; then
-        printf '{\n  "registry-mirrors": ["%s"]\n}\n' "$url" | maybe_sudo tee "$dj" >/dev/null || return 1
+        printf '{\n  "registry-mirrors": ["%s"]\n}\n' "$url" > "$tmpjson" || return 1
     else
         err "python3 is required to safely merge an existing daemon.json."
         err "Install python3 and retry, or edit $dj manually."
         return 1
     fi
 
+    # An invalid daemon.json can stop Docker from starting at all, so ask
+    # dockerd itself to validate the generated file before we install it.
+    local dockerd_help=""
+    if have dockerd; then dockerd_help="$(dockerd --help 2>&1 || true)"; fi
+    if [[ "${AYNEH_SKIP_VALIDATE:-0}" != "1" && "$dockerd_help" == *--validate* ]]; then
+        if ! maybe_sudo dockerd --validate --config-file "$tmpjson" >/dev/null 2>&1; then
+            err "The generated daemon.json failed 'dockerd --validate'; aborting."
+            err "Existing Docker configuration was not changed."
+            err "If dockerd reports an unrelated environment error, retry with AYNEH_SKIP_VALIDATE=1."
+            return 1
+        fi
+        ok "daemon.json passed 'dockerd --validate'."
+    fi
+
+    [[ -f "$dj" ]] && backup_file "$dj" docker >/dev/null && info "Backed up $dj"
+    maybe_sudo install -m 0644 "$tmpjson" "$dj" || return 1
+
     ok "registry-mirrors now:"
     maybe_sudo sed 's/^/    /' "$dj"
-    warn "Restart the Docker daemon to apply:"
-    printf '    %s\n' "sudo systemctl restart docker   # or: sudo service docker restart"
+    info "Config file: $dj"
+    info "Note: registry-mirrors only accelerate Docker Hub (docker.io) pulls."
+
+    if [[ "${AYNEH_NO_RESTART:-0}" == "1" ]]; then
+        warn "Docker restart skipped (AYNEH_NO_RESTART=1)."
+        return 0
+    elif ! has_tty; then
+        warn "Restart the Docker daemon to apply:"
+        printf '    %s\n' "sudo systemctl restart docker   # or: sudo service docker restart"
+        return 0
+    elif ! confirm "Restart Docker now to apply? (running containers may restart) " y; then
+        warn "Restart the Docker daemon later to apply:"
+        printf '    %s\n' "sudo systemctl restart docker   # or: sudo service docker restart"
+        return 0
+    else
+        info "Restarting Docker..."
+        local restart_ok=1
+        if [[ "$dj" == /var/snap/* ]]; then
+            maybe_sudo snap restart docker && restart_ok=0
+        elif restart_docker_service; then
+            restart_ok=0
+        fi
+        if [[ "$restart_ok" -ne 0 ]]; then
+            err "Could not restart Docker automatically. Restart it manually:"
+            printf '    %s\n' "sudo systemctl restart docker"
+            return 1
+        fi
+    fi
+
+    if ! _wait_for_docker; then
+        warn "Docker did not become ready within 20s. Check: sudo journalctl -u docker -n 50"
+        return 1
+    fi
+    if _docker_mirror_active "$url"; then
+        ok "Docker is now using the mirror: $url"
+    else
+        warn "Docker is up, but the mirror is not listed in 'docker info'."
+        warn "Check $dj and the Docker daemon logs."
+    fi
 }
 
 # Generic apt host-swap for Ubuntu/Debian.

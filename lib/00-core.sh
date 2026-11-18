@@ -25,7 +25,7 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 1
 fi
 
-AYNEH_VERSION="2.0.0"
+AYNEH_VERSION="2.1.0"
 PROG="ayneh"
 AYNEH_REPO="${AYNEH_REPO:-ihamedm/ayneh}"
 AYNEH_BRANCH="${AYNEH_BRANCH:-main}"
@@ -112,6 +112,21 @@ confirm() {
 pause() {
     local _d
     ask _d "${C_DIM}— press Enter to continue —${C_OFF}"
+}
+
+# True when a controlling terminal is available (works even under curl | bash).
+has_tty() {
+    { : </dev/tty; } 2>/dev/null
+}
+
+# Clear the terminal between menu actions so each command starts on a clean
+# screen. Only acts on a real terminal; AYNEH_NO_CLEAR=1 disables it.
+clear_screen() {
+    [[ "${AYNEH_NO_CLEAR:-0}" == "1" ]] && return 0
+    [[ -t 1 ]] || return 0
+    [[ "${TERM:-}" == "dumb" ]] && return 0
+    if have tput && tput clear 2>/dev/null; then return 0; fi
+    printf '\033[H\033[2J'
 }
 
 # -----------------------------------------------------------------------------
